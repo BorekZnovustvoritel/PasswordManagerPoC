@@ -11,7 +11,9 @@ from Crypto.Util.Padding import pad, unpad
 
 
 class Service:
-    def __init__(self, name: str, seed: bytes, length: int, iterations: int, alphabet: str):
+    def __init__(
+        self, name: str, seed: bytes, length: int, iterations: int, alphabet: str
+    ):
         self.name: str = name
         self.seed: bytes = seed
         self.length: int = length
@@ -23,7 +25,10 @@ class Service:
         return self.__str__()
 
     def __str__(self):
-        return f"<Service: name='{self.name}', seed={self.seed}, length={self.length}, iterations={self.iterations}, alphabet='{self.alphabet}'>"
+        return (
+            f"<Service: name='{self.name}', seed={self.seed}, length={self.length}, "
+            f"iterations={self.iterations}, alphabet='{self.alphabet}'>"
+        )
 
     def generate(self) -> str:
         if self.iterations < 1:
@@ -78,16 +83,22 @@ class EncryptedService:
 
 class Persistence:
     def __init__(self, user_password: str):
-        self.conn = sqlite3.connect(get_project_root() / db_name)
+        if not db_name:
+            self.conn = sqlite3.connect(get_project_root() / "pswdmngr.db")
+        else:
+            self.conn = sqlite3.connect(get_project_root() / db_name)
         self.cursor = self.conn.cursor()
-        self.cursor.execute("CREATE TABLE IF NOT EXISTS seeds (seed BLOB, iterations INT, controlhash BLOB);")
+        self.cursor.execute(
+            "CREATE TABLE IF NOT EXISTS seeds (seed BLOB, iterations INT, controlhash BLOB);"
+        )
         if not self.seed:
             self.set_password(user_password)
         self.token: bytes = None
         self.init_token(user_password)
 
         self.cursor.execute(
-            "CREATE TABLE IF NOT EXISTS services (e_data BLOB, iv BLOB);")
+            "CREATE TABLE IF NOT EXISTS services (e_data BLOB, iv BLOB);"
+        )
         self.conn.commit()
 
     def __del__(self):
@@ -116,7 +127,9 @@ class Persistence:
 
     def add_service(self, service: Service) -> None:
         e_service = service.encrypt(self)
-        self.cursor.execute("INSERT INTO services VALUES (?, ?);", (e_service.blob, e_service.iv))
+        self.cursor.execute(
+            "INSERT INTO services VALUES (?, ?);", (e_service.blob, e_service.iv)
+        )
         self.conn.commit()
 
     def init_token(self, user_password: str) -> None:
@@ -129,12 +142,21 @@ class Persistence:
             h.update(digest)
         h2 = sha3_512()
         h2.update(digest)
-        control_hash = self.cursor.execute("SELECT controlhash FROM seeds;").fetchone()[0]
+        control_hash = self.cursor.execute("SELECT controlhash FROM seeds;").fetchone()[
+            0
+        ]
         if control_hash != h2.digest():
             raise ValueError("Incorrect password!")
         self.token = digest
 
     def set_password(self, user_password: str) -> None:
+        if seed_length < 1:
+            raise ValueError(
+                "There has to be at least some cryptographic salt!"
+                " src.config.seed_length must be grater than 0!"
+            )
+        if auth_iterations < 1:
+            raise ValueError("Cannot perform less than 1 iteration!")
         h = sha3_256()
         seed = rand_bytes(seed_length)
         h.update(seed + bytes(user_password, encoding="utf-8"))
@@ -144,5 +166,7 @@ class Persistence:
             h.update(digest)
         h2 = sha3_512()
         h2.update(digest)
-        self.cursor.execute("INSERT INTO seeds VALUES (?, ?, ?);", (seed, auth_iterations, h2.digest()))
+        self.cursor.execute(
+            "INSERT INTO seeds VALUES (?, ?, ?);", (seed, auth_iterations, h2.digest())
+        )
         self.conn.commit()

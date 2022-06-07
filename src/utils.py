@@ -15,6 +15,7 @@ def get_project_root() -> Path:
     return Path(__file__).parent.parent
 
 
+# TODO: make more secure, now it will just generate 512 unique symbols before looping
 def byte_cycling(b: bytes) -> Generator[int, None, None]:
     while True:
         for byte in b:
