@@ -4,6 +4,7 @@ from typing import List, Optional
 from src.utils import get_project_root, rand_bytes, byte_cycling
 from src.config import seed_length, db_name, auth_iterations
 from hashlib import sha3_512, sha3_256
+import pickle
 
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
@@ -22,7 +23,7 @@ class Service:
         return self.__str__()
 
     def __str__(self):
-        return f"<Service: name={self.name}, seed={self.seed}, length={self.length}, iterations={self.iterations}, alphabet={self.alphabet}>"
+        return f"<Service: name='{self.name}', seed={self.seed}, length={self.length}, iterations={self.iterations}, alphabet='{self.alphabet}'>"
 
     def generate(self) -> str:
         if self.iterations < 1:
@@ -58,10 +59,7 @@ class Service:
         return True
 
     def encrypt(self, persistence_manager: Persistence) -> EncryptedService:
-        blob = bytes(self.name, encoding="utf-8") + b'==' + self.seed + b'==' + \
-               self.length.to_bytes(64, byteorder="big") + b'==' + self.iterations.to_bytes(64,
-                                                                                            byteorder="big") + b'==' + \
-               bytes(self.alphabet, encoding="utf-8") + b'==' + self.control_hash
+        blob = pickle.dumps(self)
         cipher = AES.new(persistence_manager.token, AES.MODE_CBC)
         iv = cipher.iv
         cipher_blob = cipher.encrypt(pad(blob, 16))
@@ -75,12 +73,7 @@ class EncryptedService:
 
     def decrypt(self, persistence_manager: Persistence) -> Service:
         cipher = AES.new(persistence_manager.token, AES.MODE_CBC, iv=self.iv)
-        plain_blob = unpad(cipher.decrypt(self.blob), 16)
-        blob_list = plain_blob.split(b'==')
-        service = Service(blob_list[0].decode("utf-8"), blob_list[1], int.from_bytes(blob_list[2], "big"),
-                          int.from_bytes(blob_list[3], "big"), blob_list[4].decode("utf-8"))
-        service.control_hash = blob_list[5]
-        return service
+        return pickle.loads(unpad(cipher.decrypt(self.blob), 16))
 
 
 class Persistence:
@@ -111,7 +104,7 @@ class Persistence:
 
     def get_services(self) -> List[Service]:
         ans: List = []
-        for row in self.cursor.execute("SELECT e_data, iv FROM services"):
+        for row in self.cursor.execute("SELECT e_data, iv FROM services;"):
             e_service = EncryptedService(row[0], row[1])
             service = e_service.decrypt(self)
             ans.append(service)
@@ -123,14 +116,14 @@ class Persistence:
 
     def add_service(self, service: Service) -> None:
         e_service = service.encrypt(self)
-        self.cursor.execute("INSERT INTO services VALUES (?, ?)", (e_service.blob, e_service.iv))
+        self.cursor.execute("INSERT INTO services VALUES (?, ?);", (e_service.blob, e_service.iv))
         self.conn.commit()
 
     def init_token(self, user_password: str) -> None:
         h = sha3_256()
         h.update(self.seed + bytes(user_password, encoding="utf-8"))
         digest = None
-        iterations = self.cursor.execute("SELECT iterations FROM seeds").fetchone()[0]
+        iterations = self.cursor.execute("SELECT iterations FROM seeds;").fetchone()[0]
         for i in range(iterations):
             digest = h.digest()
             h.update(digest)
@@ -151,5 +144,5 @@ class Persistence:
             h.update(digest)
         h2 = sha3_512()
         h2.update(digest)
-        self.cursor.execute("INSERT INTO seeds VALUES (?, ?, ?)", (seed, auth_iterations, h2.digest()))
+        self.cursor.execute("INSERT INTO seeds VALUES (?, ?, ?);", (seed, auth_iterations, h2.digest()))
         self.conn.commit()
