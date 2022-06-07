@@ -8,7 +8,10 @@ import src.config as config
 def rand_bytes(num: int) -> bytes:
     if num < 1:
         raise ValueError("Cannot generate less than 1 byte!")
-    return secrets.token_bytes(num)
+    bs = secrets.token_bytes(num)
+    while bytes("==", encoding="utf-8") in bs:
+        bs = secrets.token_bytes(num)
+    return bs
 
 
 def get_project_root() -> Path:
