@@ -74,6 +74,18 @@ class EncryptedService:
         cipher = AES.new(persistence_manager.token, AES.MODE_CBC, iv=self.iv)
         return pickle.loads(unpad(cipher.decrypt(self.blob), 16))
 
+    def remove_service(self, name: str) -> bool:
+        service = self.get_service(name)
+        if not service:
+            return False
+        for row in self.cursor.execute("SELECT idx, e_data, iv FROM services;"):
+            e_service = EncryptedService(row[1], row[2])
+            service = e_service.decrypt(self)
+            idx = row[0]
+            if service.name == name:
+                self.cursor.execute("DELETE FROM services WHERE idx=?;", (idx,))
+        self.conn.commit()
+        return True
 
 class Persistence:
     def __init__(self, user_password: str):
@@ -91,7 +103,7 @@ class Persistence:
         self.init_token(user_password)
 
         self.cursor.execute(
-            "CREATE TABLE IF NOT EXISTS services (e_data BLOB, iv BLOB);"
+            "CREATE TABLE IF NOT EXISTS services (idx INTEGER PRIMARY KEY AUTOINCREMENT, e_data BLOB, iv BLOB);"
         )
         self.conn.commit()
 
@@ -122,7 +134,7 @@ class Persistence:
     def add_service(self, service: Service) -> None:
         e_service = service.encrypt(self)
         self.cursor.execute(
-            "INSERT INTO services VALUES (?, ?);", (e_service.blob, e_service.iv)
+            "INSERT INTO services (e_data, iv) VALUES (?, ?);", (e_service.blob, e_service.iv)
         )
         self.conn.commit()
 

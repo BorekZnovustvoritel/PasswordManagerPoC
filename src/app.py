@@ -6,6 +6,8 @@ import src.config as config
 
 class PasswordManager:
     def __init__(self, user_password: str):
+        if not isinstance(user_password, str):
+            raise TypeError("Application password must be a string!")
         self.persistence_manager = persistence.Persistence(user_password)
 
     @property
@@ -56,3 +58,10 @@ class PasswordManager:
                 "Something has changed and the password could not be recovered!"
             )
         return service.generate()
+
+    def remove_service(self, name: str) -> str:
+        if not isinstance(name, str):
+            raise TypeError("Service name must be a string!")
+        if not self.persistence_manager.remove_service(name):
+            return "Not found."
+        return f"Successfully deleted service {name}."
