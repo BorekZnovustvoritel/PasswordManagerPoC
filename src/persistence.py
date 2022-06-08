@@ -39,14 +39,8 @@ class Service:
         for i in range(self.iterations):
             digest = h.digest()
             h.update(digest)
-        index = 0
-        word: str = ""
-        for b in byte_cycling(digest):
-            if index >= self.length:
-                break
-            word += self.alphabet[b % len(self.alphabet)]
-            index += 1
-        return word
+        service_map = MapAlphabet(self)
+        return service_map.generate_password(digest)
 
     def _control_hash(self) -> bytes:
         h = sha3_512()
@@ -170,3 +164,55 @@ class Persistence:
             "INSERT INTO seeds VALUES (?, ?, ?);", (seed, auth_iterations, h2.digest())
         )
         self.conn.commit()
+
+
+class MapAlphabet:
+    def __init__(self, service: Service):
+        self.raw_service = service
+        self.alphabet = service.alphabet
+        self.groups = None
+        self.init_groups()
+        self.charset = list(set(self.alphabet))
+        self.charset.sort()
+        if len(self.groups) > self.raw_service.length:
+            raise ValueError("Cannot have more groups than symbols!")
+
+    def init_groups(self) -> None:
+        marked_indices = []
+        groups = []
+        inside_brackets = False
+        start_index = -1
+        for index, letter in enumerate(self.alphabet):
+            if letter == "\\" and index < len(self.alphabet) - 1:
+                if self.alphabet[index + 1] == "[":
+                    inside_brackets = True
+                    start_index = index + 2
+                elif self.alphabet[index + 1] == "]" and inside_brackets and (index - start_index) > 0:
+                    groups.append(self.alphabet[start_index:index])
+                    inside_brackets = False
+                    marked_indices.append(start_index - 2)
+                    marked_indices.append(start_index - 1)
+                    marked_indices.append(index)
+                    marked_indices.append(index + 1)
+                    start_index = -1
+        self.groups = groups
+        marked_indices.sort(reverse=True)
+        for i in marked_indices:
+            self.alphabet = self.alphabet[:i] + self.alphabet[i + 1:]
+
+    def generate_password(self, data: bytes) -> str:
+        unused_indices = [i for i in range(self.raw_service.length)]
+        ans = {}
+        iterator = byte_cycling(data)
+        for group in self.groups:
+            position = unused_indices[next(iterator) % len(unused_indices)]
+            ans.update({position: group[next(iterator) % len(group)]})
+            unused_indices.remove(position)
+        for i in range(self.raw_service.length - len(ans)):
+            position = unused_indices[next(iterator) % len(unused_indices)]
+            ans.update({position: self.charset[next(iterator) % len(self.charset)]})
+            unused_indices.remove(position)
+        password = ""
+        for i in range(self.raw_service.length):
+            password += ans.get(i)
+        return password

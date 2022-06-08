@@ -1,6 +1,6 @@
 import secrets
 from pathlib import Path
-from typing import Generator
+from typing import Generator, List
 from hashlib import md5
 import src.config as config
 
