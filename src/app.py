@@ -1,67 +1,195 @@
-import src.utils as utils
-from typing import List, Optional
-import src.persistence as persistence
+from __future__ import annotations
+
+import string
+from typing import List
+from PyQt5 import QtWidgets, QtCore
+from PyQt5.QtCore import QModelIndex, Qt
+from PyQt5.uic.properties import QtGui
+
+import src.interface as iface
 import src.config as config
+from src.ui import auth, main_w, add
 
 
-class PasswordManager:
-    def __init__(self, user_password: str):
-        if not isinstance(user_password, str):
-            raise TypeError("Application password must be a string!")
-        self.persistence_manager = persistence.Persistence(user_password)
+class LoginDialog(QtWidgets.QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.ui = auth.Ui_Dialog()
+        self.ui.setupUi(self)
+        self.child = None
 
-    @property
-    def seed(self) -> bytes:
-        return self.persistence_manager.seed
+        self.ui.pushButton.clicked.connect(self.authenticate)
+        self.rejected.connect(self.parent().close)
+        self.setWindowState(Qt.WindowActive)
+        self.show()
 
-    @property
-    def services(self) -> List[persistence.Service]:
-        return self.persistence_manager.get_services()
+    def authenticate(self) -> MainWindow:
+        try:
+            manager = iface.PasswordManager(self.ui.lineEdit.text())
+            self.parent().manager = manager
+            self.parent().init_data()
+            self.parent().resize_table()
+            self.parent().ui.pushButton.setEnabled(True)
+            self.accept()
+        except ValueError:
+            self.ui.label.setText("Wrong Password!")
+        return self
 
-    def get_service(self, service: str) -> Optional[persistence.Service]:
-        return self.persistence_manager.get_service(service)
 
-    def add_service(
-        self,
-        name: str,
-        length: int = config.default_length,
-        iterations: int = config.default_iterations,
-        alphabet: str = config.default_alphabet,
-    ) -> bool:
-        if not isinstance(length, int) or length < 8:
-            raise ValueError("Weak password length!")
-        if not isinstance(iterations, int) or iterations < 1:
-            raise ValueError("Cannot perform less than 1 iteration!")
-        if not isinstance(alphabet, str) or len(set(alphabet)) < 10:
-            raise ValueError("Weak alphabet set!")
-        if config.seed_length < 1:
-            raise ValueError(
-                "There has to be at least some cryptographic salt!"
-                " src.config.seed_length must be grater than 0!"
-            )
-        service = self.persistence_manager.get_service(name)
-        if service is not None:
-            return False
-        service = persistence.Service(
-            name, utils.rand_bytes(config.seed_length), length, iterations, alphabet
-        )
-        service.init_control_hash()
-        self.persistence_manager.add_service(service)
-        return True
+class MainWindow(QtWidgets.QMainWindow):
+    def __init__(self, parent=None):
+        super(MainWindow, self).__init__(parent)
+        self.ui = main_w.Ui_MainWindow()
+        self.ui.setupUi(self)
+        self.set_location()
+        self.setWindowTitle("Password Manager")
 
-    def generate(self, service_name: str) -> str:
-        service = self.get_service(service_name)
-        if not service:
-            raise ValueError("Service does not  exist!")
-        if not service.validate():
-            raise ValueError(
-                "Something has changed and the password could not be recovered!"
-            )
-        return service.generate()
+        self.manager = None
+        self.ui.pushButton.setDisabled(True)
 
-    def remove_service(self, name: str) -> str:
-        if not isinstance(name, str):
-            raise TypeError("Service name must be a string!")
-        if not self.persistence_manager.remove_service(name):
-            return "Not found."
-        return f"Successfully deleted service {name}."
+        self.login_dialog = LoginDialog(self)
+        self.login_dialog.setWindowTitle("Unlock the application:")
+
+        self.ui.tableView.setSelectionBehavior(QtWidgets.QTableView.SelectionBehavior.SelectRows)
+        self.ui.tableView.verticalHeader().setVisible(False)
+        self.ui.tableView.clicked.connect(self.copy_password)
+        self.ui.actionDelete.triggered.connect(self.delete_item)
+        self.ui.tableView.addAction(self.ui.actionDelete)
+
+        self.ui.pushButton.clicked.connect(self.add_service)
+
+        self.child = AddServiceDialog(self)
+        self.show()
+
+    def copy_password(self, item: QModelIndex):
+        password = self.ui.tableView.model().data[item.row()][1]
+        QtWidgets.QApplication.clipboard().setText(password)
+
+    def add_service(self):
+        self.child.show()
+
+    def init_data(self):
+        self.ui.tableView.setModel(
+            ServiceTableModel([(o.name, self.manager.generate(o.name)) for o in self.manager.services]))
+
+    def resize_table(self):
+        self.ui.tableView.setColumnWidth(0, self.ui.tableView.width() // 2)
+        self.ui.tableView.setColumnWidth(1, self.ui.tableView.width() - self.ui.tableView.columnWidth(0) - 2)
+
+    def delete_item(self):
+        indexes = self.ui.tableView.selectedIndexes()
+        names = set()
+        for i in indexes:
+            names.add(self.ui.tableView.model().data[i.row()][0])
+        if not names:
+            return
+        reply = QtWidgets.QMessageBox.question(self, "Are you sure?",
+                                               f"Do you really want to delete {', '.join(names)}?",
+                                               QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        if reply == QtWidgets.QMessageBox.Yes:
+            for name in names:
+                self.manager.remove_service(name)
+            self.init_data()
+
+    def resizeEvent(self, a0: QtGui.QResizeEvent) -> None:
+        super(MainWindow, self).resizeEvent(a0)
+        self.resize_table()
+
+    def set_location(self):
+        geometry = QtWidgets.QDesktopWidget().availableGeometry()
+        widget = self.geometry()
+        x = geometry.width() - widget.width()
+        y = geometry.height() - widget.height()
+        self.move(x, y)
+
+
+class ServiceTableModel(QtCore.QAbstractTableModel):
+    def __init__(self, data: List[(str, str)], parent=None):
+        super(ServiceTableModel, self).__init__(parent)
+        self.data = data
+
+    def rowCount(self, parent: QModelIndex = ...) -> int:
+        return len(self.data)
+
+    def columnCount(self, parent: QModelIndex = ...) -> int:
+        return 2
+
+    def data(self, index: QModelIndex, role: int = ...) -> str:
+        if role == QtCore.Qt.DisplayRole:
+            row = index.row()
+            col = index.column()
+            return self.data[row][col]
+
+    def headerData(self, section: int, orientation: Qt.Orientation, role: int = ...):
+        if role == QtCore.Qt.DisplayRole:
+            if orientation == Qt.Horizontal:
+                if section == 0:
+                    return "Service"
+                elif section == 1:
+                    return "Password"
+
+
+class AddServiceDialog(QtWidgets.QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.ui = add.Ui_Dialog()
+        self.ui.setupUi(self)
+        self.ui.buttonBox.accepted.connect(self.accept)
+        self.ui.buttonBox.rejected.connect(self.reject)
+        self.setWindowTitle("Add a service")
+
+    def accept(self) -> None:
+        name = self.ui.lineEditName.text()
+        if not name:
+            return self.reject()
+        length = self.ui.lineEditLength.text()
+        if not length:
+            length = 32
+        else:
+            length = int(length)
+        alphabet: str = ""
+        if self.ui.checkBoxEnforceLowercase.isChecked():
+            alphabet += "\[" + string.ascii_lowercase + "\]"
+        elif self.ui.checkBoxAllowLowercase.isChecked():
+            alphabet += string.ascii_lowercase
+        if self.ui.checkBoxEnforceUppercase.isChecked():
+            alphabet += "\[" + string.ascii_uppercase + "\]"
+        elif self.ui.checkBoxAllowUppercase.isChecked():
+            alphabet += string.ascii_uppercase
+        if self.ui.checkBoxEnforceNumbers.isChecked():
+            alphabet += "\[" + "".join([str(i) for i in range(10)]) + "\]"
+        elif self.ui.checkBoxAllowNumbers.isChecked():
+            alphabet += "".join([str(i) for i in range(10)])
+        special_symbols = "".join(set(self.ui.lineEditSpecialSymbols.text()))
+        if not special_symbols:
+            special_symbols = "!\"#$%&'()*+,-./:;<=>?@[]^_`{|}~ \\"
+        elif "\[" in special_symbols or "\]" in special_symbols:
+            special_symbols = special_symbols.replace("\\", "")
+            special_symbols += "\\"
+        if self.ui.checkBoxEnforceSpecialSymbols.isChecked():
+            alphabet += "\[" + special_symbols + "\]"
+        elif self.ui.checkBoxAllowSpecialSymbols.isChecked():
+            alphabet += special_symbols
+
+        try:
+            self.parent().manager.add_service(name, length, config.default_iterations, alphabet)
+        except Exception as e:
+            message = QtWidgets.QMessageBox(self)
+            message.setText(str(e))
+            message.show()
+            self.reject()
+            return
+
+        self.parent().init_data()
+        self.hide()
+        self.parent().child = AddServiceDialog(self.parent())
+
+    def reject(self) -> None:
+        self.hide()
+        self.parent().child = AddServiceDialog(self.parent())
+
+
+def main():
+    app = QtWidgets.QApplication([])
+    rw = MainWindow()
+    app.exec_()

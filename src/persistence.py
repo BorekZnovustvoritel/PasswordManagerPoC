@@ -74,18 +74,6 @@ class EncryptedService:
         cipher = AES.new(persistence_manager.token, AES.MODE_CBC, iv=self.iv)
         return pickle.loads(unpad(cipher.decrypt(self.blob), 16))
 
-    def remove_service(self, name: str) -> bool:
-        service = self.get_service(name)
-        if not service:
-            return False
-        for row in self.cursor.execute("SELECT idx, e_data, iv FROM services;"):
-            e_service = EncryptedService(row[1], row[2])
-            service = e_service.decrypt(self)
-            idx = row[0]
-            if service.name == name:
-                self.cursor.execute("DELETE FROM services WHERE idx=?;", (idx,))
-        self.conn.commit()
-        return True
 
 class Persistence:
     def __init__(self, user_password: str):
@@ -176,6 +164,19 @@ class Persistence:
             "INSERT INTO seeds VALUES (?, ?, ?);", (seed, auth_iterations, h2.digest())
         )
         self.conn.commit()
+
+    def remove_service(self, name: str) -> bool:
+        service = self.get_service(name)
+        if not service:
+            return False
+        for row in self.cursor.execute("SELECT idx, e_data, iv FROM services;"):
+            e_service = EncryptedService(row[1], row[2])
+            service = e_service.decrypt(self)
+            idx = row[0]
+            if service.name == name:
+                self.cursor.execute("DELETE FROM services WHERE idx=?;", (idx,))
+        self.conn.commit()
+        return True
 
 
 class MapAlphabet:
