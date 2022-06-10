@@ -23,6 +23,20 @@ Try `py` (Windows) or `python3` (Debian))
 - `source venv/bin/activate`
 - `python ./main.py`
 
+## How to actually use this
+
+When opened for the first time, you will be prompted to enter a password. **Make sure this password is strong, not used anywhere else and make sure to remember it. There is no way to reset the main password (yet).** On every other login after this, you will need to enter the exact same password or you will not be able to access your own data because of strong encryption (AES_256_CBC).
+
+Add your services via the `Add` button on the main window, choose the password parameters and press `Ok`. The selected password will be copied to your clipboard upon a doubleclick.
+
+Delete a service with a right click or sigleclick followed by pressing the `del` key on your keyboard.
+
+This softare doesn't even store your encrypted passwords. In the encrypted database file, there only is a "cookbook" involving salted sha3_512 and sha3_256 hashes that provide the pseudorandom password seed. So the only point of failure is (hopefully) a weak main password.
+
+This project is a work in progress and by using this, I take no liability over lost data.
+
+Protect and backup your `.db` file. If this file corrupts, all the saved passwords will be lost.
+
 ## Credits
 
 This repository uses [PyCryptoDome](https://www.pycryptodome.org/en/latest/) and [PyQt5](https://www.riverbankcomputing.com/software/pyqt/) modules available via Python Pip.
