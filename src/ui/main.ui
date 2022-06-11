@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+    <class>MainWindow</class>
+    <widget class="QMainWindow" name="MainWindow">
+        <property name="geometry">
+            <rect>
+                <x>0</x>
+                <y>0</y>
+                <width>497</width>
+                <height>211</height>
+            </rect>
+        </property>
+        <property name="windowTitle">
+            <string>MainWindow</string>
+        </property>
+        <widget class="QWidget" name="centralwidget">
+            <layout class="QVBoxLayout" name="verticalLayout_3">
+                <item>
+                    <widget class="QTableView" name="tableView">
+                        <property name="contextMenuPolicy">
+                            <enum>Qt::ActionsContextMenu</enum>
+                        </property>
+                        <attribute name="verticalHeaderVisible">
+                            <bool>false</bool>
+                        </attribute>
+                    </widget>
+                </item>
+                <item>
+                    <widget class="QPushButton" name="pushButton">
+                        <property name="text">
+                            <string>Add</string>
+                        </property>
+                    </widget>
+                </item>
+            </layout>
+        </widget>
+        <action name="actionDelete">
+            <property name="text">
+                <string>Delete</string>
+            </property>
+            <property name="shortcut">
+                <string>Del</string>
+            </property>
+        </action>
+    </widget>
+    <resources/>
+    <connections/>
+</ui>
