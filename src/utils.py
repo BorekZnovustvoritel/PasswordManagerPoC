@@ -30,3 +30,7 @@ def hash_db() -> bytes:
             h.update(data)
             data = db_file.read(65536)
     return h.digest()
+
+
+def is_first_init() -> bool:
+    return not (get_project_root() / config.db_name).is_file()

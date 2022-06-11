@@ -4,26 +4,57 @@ import string
 from typing import List
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtCore import QModelIndex, Qt
+from PyQt5.QtGui import QFont
 from PyQt5.uic.properties import QtGui
 
+from src.utils import is_first_init
 import src.interface as iface
 import src.config as config
-from src.ui import auth, main_w, add
+from src.ui import auth, main_w, add, first_auth
 
 
 class LoginDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.ui = auth.Ui_Dialog()
-        self.ui.setupUi(self)
-        self.child = None
 
-        self.ui.pushButton.clicked.connect(self.authenticate)
+        if is_first_init():
+            self.ui = first_auth.Ui_Dialog()
+            self.ui.setupUi(self)
+
+            self.ui.pushButton.clicked.connect(self.first_authenticate)
+        else:
+            self.ui = auth.Ui_Dialog()
+            self.ui.setupUi(self)
+            self.child = None
+
+            self.ui.pushButton.clicked.connect(self.authenticate)
         self.rejected.connect(self.parent().close)
         self.setWindowState(Qt.WindowActive)
         self.show()
 
-    def authenticate(self) -> MainWindow:
+    def authenticate(self):
+        self._init_manager()
+
+    def first_authenticate(self):
+        line1 = self.ui.lineEdit.text()
+        line2 = self.ui.lineEdit_2.text()
+        if not line1 == line2:
+            error_dialog = QtWidgets.QMessageBox(self)
+            error_dialog.setText("Passwords differ!")
+            error_dialog.show()
+            self.ui.lineEdit.setText("")
+            self.ui.lineEdit_2.setText("")
+            return
+        elif len(line1) < 8:
+            error_dialog = QtWidgets.QMessageBox(self)
+            error_dialog.setText("Password is too short!")
+            error_dialog.show()
+            self.ui.lineEdit.setText("")
+            self.ui.lineEdit_2.setText("")
+            return
+        self._init_manager()
+
+    def _init_manager(self):
         try:
             manager = iface.PasswordManager(self.ui.lineEdit.text())
             self.parent().manager = manager
@@ -32,8 +63,10 @@ class LoginDialog(QtWidgets.QDialog):
             self.parent().ui.pushButton.setEnabled(True)
             self.accept()
         except ValueError:
-            self.ui.label.setText("Wrong Password!")
-        return self
+            error_dialog = QtWidgets.QMessageBox(self)
+            error_dialog.setText("Wrong password!")
+            error_dialog.show()
+            self.ui.lineEdit.setText("")
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -71,9 +104,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def init_data(self):
         self.ui.tableView.setModel(
             ServiceTableModel([(o.name, self.manager.generate(o.name)) for o in self.manager.services]))
+        self.resize_table()
 
     def resize_table(self):
-        self.ui.tableView.setColumnWidth(0, self.ui.tableView.width() // 2)
+        self.ui.tableView.resizeColumnToContents(0)
         self.ui.tableView.setColumnWidth(1, self.ui.tableView.width() - self.ui.tableView.columnWidth(0) - 2)
 
     def delete_item(self):
@@ -191,5 +225,6 @@ class AddServiceDialog(QtWidgets.QDialog):
 
 def main():
     app = QtWidgets.QApplication([])
+    app.setFont(QFont("Helvetica", 10))
     rw = MainWindow()
     app.exec_()
