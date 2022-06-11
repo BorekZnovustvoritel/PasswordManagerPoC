@@ -11,6 +11,8 @@ from Crypto.Util.Padding import pad, unpad
 
 
 class Service:
+    """Decrypted service and password recipe."""
+
     def __init__(
         self, name: str, seed: bytes, length: int, iterations: int, alphabet: str
     ):
@@ -31,6 +33,7 @@ class Service:
         )
 
     def generate(self) -> str:
+        """Generate the service's password according to the recipe."""
         if self.iterations < 1:
             raise ValueError("Cannot iterate less times than 1!")
         h = sha3_512()
@@ -43,21 +46,25 @@ class Service:
         return service_map.generate_password(digest)
 
     def _control_hash(self) -> bytes:
+        """Returns hash of the generated password."""
         h = sha3_512()
         h.update(bytes(self.generate(), encoding="utf-8"))
         return h.digest()
 
     def init_control_hash(self) -> None:
+        """Initiates the digest of the password for the correctness check."""
         if self.control_hash is not None:
             raise ValueError("Rewriting control hash is forbidden!")
         self.control_hash = self._control_hash()
 
     def validate(self) -> bool:
+        """Checks if the generated password is correct according to stored digest value."""
         if self._control_hash() != self.control_hash:
             return False
         return True
 
     def encrypt(self, persistence_manager: Persistence) -> EncryptedService:
+        """Turns itself into a pickle and encrypts itself. Funniest shit I've ever seen."""
         blob = pickle.dumps(self)
         cipher = AES.new(persistence_manager.token, AES.MODE_CBC)
         iv = cipher.iv
@@ -66,16 +73,21 @@ class Service:
 
 
 class EncryptedService:
+    """Pickled, encrypted service and its recipe."""
+
     def __init__(self, blob, iv):
         self.blob = blob
         self.iv = iv
 
     def decrypt(self, persistence_manager: Persistence) -> Service:
+        """Enough of the R&M references. We goin' plaintext again."""
         cipher = AES.new(persistence_manager.token, AES.MODE_CBC, iv=self.iv)
         return pickle.loads(unpad(cipher.decrypt(self.blob), 16))
 
 
 class Persistence:
+    """Communication with the database. Needs main password to decrypt the database."""
+
     def __init__(self, user_password: str):
         if not db_name:
             self.conn = sqlite3.connect(get_project_root() / "pswdmngr.db")
@@ -100,6 +112,8 @@ class Persistence:
 
     @property
     def seed(self) -> Optional[bytes]:
+        """Returns salt used for db encryption purposes. This salt is combined with the main password, hashed many
+        times and the out-coming mess is used as the db encryption key."""
         seed = self.cursor.execute("SELECT seed FROM seeds;").fetchone()
         if not seed:
             return None
@@ -108,6 +122,7 @@ class Persistence:
         return seed
 
     def get_services(self) -> List[Service]:
+        """Get decrypted services and their recipes."""
         ans: List = []
         for row in self.cursor.execute("SELECT e_data, iv FROM services;"):
             e_service = EncryptedService(row[0], row[1])
@@ -116,17 +131,21 @@ class Persistence:
         return ans
 
     def get_service(self, name: str) -> Optional[Service]:
+        """Get decrypted service and its recipe"""
         services = self.get_services()
         return next((service for service in services if service.name == name), None)
 
     def add_service(self, service: Service) -> None:
+        """Encrypt a service and add it to the database."""
         e_service = service.encrypt(self)
         self.cursor.execute(
-            "INSERT INTO services (e_data, iv) VALUES (?, ?);", (e_service.blob, e_service.iv)
+            "INSERT INTO services (e_data, iv) VALUES (?, ?);",
+            (e_service.blob, e_service.iv),
         )
         self.conn.commit()
 
     def init_token(self, user_password: str) -> None:
+        """Initiates the password decryption token. Combines main password with salt and hashes this mess many times."""
         h = sha3_256()
         h.update(self.seed + bytes(user_password, encoding="utf-8"))
         digest = None
@@ -144,6 +163,7 @@ class Persistence:
         self.token = digest
 
     def set_password(self, user_password: str) -> None:
+        """Initiates salt used for the database encryption."""
         if seed_length < 1:
             raise ValueError(
                 "There has to be at least some cryptographic salt!"
@@ -166,6 +186,7 @@ class Persistence:
         self.conn.commit()
 
     def remove_service(self, name: str) -> bool:
+        """Removes a service."""
         service = self.get_service(name)
         if not service:
             return False
@@ -180,6 +201,9 @@ class Persistence:
 
 
 class MapAlphabet:
+    """Creates alphabet to which the cooked tokens will be translated. Ensures that there are present symbols from
+    required groups."""
+
     def __init__(self, service: Service):
         self.raw_service = service
         self.alphabet = service.alphabet
@@ -191,6 +215,7 @@ class MapAlphabet:
             raise ValueError("Cannot have more groups than symbols!")
 
     def init_groups(self) -> None:
+        """Translates the string-based alphabet syntax to an actual object. These strings are stored in the recipe."""
         marked_indices = []
         groups = []
         inside_brackets = False
@@ -200,7 +225,11 @@ class MapAlphabet:
                 if self.alphabet[index + 1] == "[":
                     inside_brackets = True
                     start_index = index + 2
-                elif self.alphabet[index + 1] == "]" and inside_brackets and (index - start_index) > 0:
+                elif (
+                    self.alphabet[index + 1] == "]"
+                    and inside_brackets
+                    and (index - start_index) > 0
+                ):
                     groups.append(self.alphabet[start_index:index])
                     inside_brackets = False
                     marked_indices.append(start_index - 2)
@@ -211,9 +240,10 @@ class MapAlphabet:
         self.groups = groups
         marked_indices.sort(reverse=True)
         for i in marked_indices:
-            self.alphabet = self.alphabet[:i] + self.alphabet[i + 1:]
+            self.alphabet = self.alphabet[:i] + self.alphabet[i + 1 :]
 
     def generate_password(self, data: bytes) -> str:
+        """Maps bytes to a string output consisting of pre-selected symbols."""
         unused_indices = [i for i in range(self.raw_service.length)]
         ans = {}
         iterator = byte_cycling(data)

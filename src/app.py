@@ -14,6 +14,8 @@ from src.ui import auth, main_w, add, first_auth
 
 
 class LoginDialog(QtWidgets.QDialog):
+    """Dialog window that appears before the app lets you do anything."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
 
@@ -33,9 +35,11 @@ class LoginDialog(QtWidgets.QDialog):
         self.show()
 
     def authenticate(self):
+        """Authentication after the user account is set."""
         self._init_manager()
 
     def first_authenticate(self):
+        """Setting up the password."""
         line1 = self.ui.lineEdit.text()
         line2 = self.ui.lineEdit_2.text()
         if not line1 == line2:
@@ -55,6 +59,7 @@ class LoginDialog(QtWidgets.QDialog):
         self._init_manager()
 
     def _init_manager(self):
+        """Tries to authenticate. Displays error message window or initiates the main window."""
         try:
             manager = iface.PasswordManager(self.ui.lineEdit.text())
             self.parent().manager = manager
@@ -70,6 +75,8 @@ class LoginDialog(QtWidgets.QDialog):
 
 
 class MainWindow(QtWidgets.QMainWindow):
+    """I wonder what this class is..."""
+
     def __init__(self, parent=None):
         super(MainWindow, self).__init__(parent)
         self.ui = main_w.Ui_MainWindow()
@@ -83,7 +90,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.login_dialog = LoginDialog(self)
         self.login_dialog.setWindowTitle("Unlock the application:")
 
-        self.ui.tableView.setSelectionBehavior(QtWidgets.QTableView.SelectionBehavior.SelectRows)
+        self.ui.tableView.setSelectionBehavior(
+            QtWidgets.QTableView.SelectionBehavior.SelectRows
+        )
         self.ui.tableView.verticalHeader().setVisible(False)
         self.ui.tableView.clicked.connect(self.copy_password)
         self.ui.actionDelete.triggered.connect(self.delete_item)
@@ -95,31 +104,44 @@ class MainWindow(QtWidgets.QMainWindow):
         self.show()
 
     def copy_password(self, item: QModelIndex):
+        """Doubleclick on a service copies the password to your clipboard."""
         password = self.ui.tableView.model().data[item.row()][1]
         QtWidgets.QApplication.clipboard().setText(password)
 
     def add_service(self):
+        """Opens dialog for adding services."""
         self.child.show()
 
     def init_data(self):
+        """Fills the table and adjust its size."""
         self.ui.tableView.setModel(
-            ServiceTableModel([(o.name, self.manager.generate(o.name)) for o in self.manager.services]))
+            ServiceTableModel(
+                [(o.name, self.manager.generate(o.name)) for o in self.manager.services]
+            )
+        )
         self.resize_table()
 
     def resize_table(self):
+        """Adjust the size of the table."""
         self.ui.tableView.resizeColumnToContents(0)
-        self.ui.tableView.setColumnWidth(1, self.ui.tableView.width() - self.ui.tableView.columnWidth(0) - 2)
+        self.ui.tableView.setColumnWidth(
+            1, self.ui.tableView.width() - self.ui.tableView.columnWidth(0) - 2
+        )
 
     def delete_item(self):
+        """Open dialog to confirm the deletion and proceed to delete."""
         indexes = self.ui.tableView.selectedIndexes()
         names = set()
         for i in indexes:
             names.add(self.ui.tableView.model().data[i.row()][0])
         if not names:
             return
-        reply = QtWidgets.QMessageBox.question(self, "Are you sure?",
-                                               f"Do you really want to delete {', '.join(names)}?",
-                                               QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Are you sure?",
+            f"Do you really want to delete {', '.join(names)}?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+        )
         if reply == QtWidgets.QMessageBox.Yes:
             for name in names:
                 self.manager.remove_service(name)
@@ -130,6 +152,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resize_table()
 
     def set_location(self):
+        """Positions the application to the bottom-right corner of the screen."""
         geometry = QtWidgets.QDesktopWidget().availableGeometry()
         widget = self.geometry()
         x = geometry.width() - widget.width()
@@ -138,6 +161,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
 class ServiceTableModel(QtCore.QAbstractTableModel):
+    """Nodel for displaying the data in the table."""
+
     def __init__(self, data: List[(str, str)], parent=None):
         super(ServiceTableModel, self).__init__(parent)
         self.data = data
@@ -164,6 +189,8 @@ class ServiceTableModel(QtCore.QAbstractTableModel):
 
 
 class AddServiceDialog(QtWidgets.QDialog):
+    """Dialog that lets you add a service and change the attributes of its password."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.ui = add.Ui_Dialog()
@@ -206,7 +233,9 @@ class AddServiceDialog(QtWidgets.QDialog):
             alphabet += special_symbols
 
         try:
-            self.parent().manager.add_service(name, length, config.default_iterations, alphabet)
+            self.parent().manager.add_service(
+                name, length, config.default_iterations, alphabet
+            )
         except Exception as e:
             message = QtWidgets.QMessageBox(self)
             message.setText(str(e))

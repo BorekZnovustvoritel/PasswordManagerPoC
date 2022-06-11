@@ -5,6 +5,8 @@ import src.config as config
 
 
 class PasswordManager:
+    """String-based interface for the application."""
+
     def __init__(self, user_password: str):
         if not isinstance(user_password, str):
             raise TypeError("Application password must be a string!")
@@ -22,12 +24,13 @@ class PasswordManager:
         return self.persistence_manager.get_service(service)
 
     def add_service(
-            self,
-            name: str,
-            length: int = config.default_length,
-            iterations: int = config.default_iterations,
-            alphabet: str = config.default_alphabet,
+        self,
+        name: str,
+        length: int = config.default_length,
+        iterations: int = config.default_iterations,
+        alphabet: str = config.default_alphabet,
     ) -> bool:
+        """Add a service."""
         if not isinstance(length, int) or length < 8:
             raise ValueError("Weak password length!")
         if not isinstance(iterations, int) or iterations < 1:
@@ -50,6 +53,7 @@ class PasswordManager:
         return True
 
     def generate(self, service_name: str) -> str:
+        """Generate the password of a service according to the service name."""
         service = self.get_service(service_name)
         if not service:
             raise ValueError("Service does not  exist!")
@@ -60,6 +64,7 @@ class PasswordManager:
         return service.generate()
 
     def remove_service(self, name: str) -> str:
+        """Remove the service according to its name."""
         if not isinstance(name, str):
             raise TypeError("Service name must be a string!")
         if not self.persistence_manager.remove_service(name):
