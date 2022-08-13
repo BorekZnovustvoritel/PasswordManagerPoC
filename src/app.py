@@ -105,8 +105,10 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def copy_password(self, item: QModelIndex):
         """Doubleclick on a service copies the password to your clipboard."""
-        password = self.ui.tableView.model().data[item.row()][1]
-        QtWidgets.QApplication.clipboard().setText(password)
+        service = self.manager.get_service(self.ui.tableView.model().data[item.row()][0])
+        QtWidgets.QApplication.clipboard().setText(service.password)
+        self.ui.tableView.model().data[item.row()] = (service.name, service.password)
+        self.resize_table()
 
     def add_service(self):
         """Opens dialog for adding services."""
@@ -116,7 +118,7 @@ class MainWindow(QtWidgets.QMainWindow):
         """Fills the table and adjust its size."""
         self.ui.tableView.setModel(
             ServiceTableModel(
-                [(o.name, self.manager.generate(o.name)) for o in self.manager.services]
+                [(o.name, "*****") for o in self.manager.services]
             )
         )
         self.resize_table()
@@ -130,21 +132,19 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def delete_item(self):
         """Open dialog to confirm the deletion and proceed to delete."""
-        indexes = self.ui.tableView.selectedIndexes()
-        names = set()
-        for i in indexes:
-            names.add(self.ui.tableView.model().data[i.row()][0])
-        if not names:
+        indexes = set([i.row() for i in self.ui.tableView.selectedIndexes()])
+        services = [self.ui.tableView.model().data[i][0] for i in indexes]
+        if not services:
             return
         reply = QtWidgets.QMessageBox.question(
             self,
             "Are you sure?",
-            f"Do you really want to delete {', '.join(names)}?",
+            f"Do you really want to delete {', '.join(services)}?",
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
         )
         if reply == QtWidgets.QMessageBox.Yes:
-            for name in names:
-                self.manager.remove_service(name)
+            for s in services:
+                self.manager.remove_service(s)
             self.init_data()
 
     def resizeEvent(self, a0: QtGui.QResizeEvent) -> None:
@@ -205,7 +205,7 @@ class AddServiceDialog(QtWidgets.QDialog):
             return self.reject()
         length = self.ui.lineEditLength.text()
         if not length:
-            length = 32
+            length = config.default_length
         else:
             length = int(length)
         alphabet: str = ""
@@ -223,7 +223,7 @@ class AddServiceDialog(QtWidgets.QDialog):
             alphabet += "".join([str(i) for i in range(10)])
         special_symbols = "".join(set(self.ui.lineEditSpecialSymbols.text()))
         if not special_symbols:
-            special_symbols = "!\"#$%&'()*+,-./:;<=>?@[]^_`{|}~ \\"
+            special_symbols = "!\"#$%&'()*+,-./:;<=>?@[]^_`{|}~\\"
         elif "\[" in special_symbols or "\]" in special_symbols:
             special_symbols = special_symbols.replace("\\", "")
             special_symbols += "\\"
@@ -234,7 +234,7 @@ class AddServiceDialog(QtWidgets.QDialog):
 
         try:
             self.parent().manager.add_service(
-                name, length, config.default_iterations, alphabet
+                name, length, alphabet
             )
         except Exception as e:
             message = QtWidgets.QMessageBox(self)
