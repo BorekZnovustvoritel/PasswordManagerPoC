@@ -6,11 +6,13 @@ from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtCore import QModelIndex, Qt
 from PyQt5.QtGui import QFont
 from PyQt5.uic.properties import QtGui
+import re
 
 from src.utils import is_first_init
 import src.interface as iface
 import src.config as config
-from src.ui import auth, main_w, add, first_auth
+from src.ui import auth, main_w, generate, first_auth, add
+from src.persistence import Service
 
 
 class LoginDialog(QtWidgets.QDialog):
@@ -65,7 +67,8 @@ class LoginDialog(QtWidgets.QDialog):
             self.parent().manager = manager
             self.parent().init_data()
             self.parent().resize_table()
-            self.parent().ui.pushButton.setEnabled(True)
+            self.parent().ui.generate_password.setEnabled(True)
+            self.parent().ui.store_password.setEnabled(True)
             self.accept()
         except ValueError:
             error_dialog = QtWidgets.QMessageBox(self)
@@ -85,7 +88,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("Password Manager")
 
         self.manager = None
-        self.ui.pushButton.setDisabled(True)
+        self.ui.generate_password.setDisabled(True)
+        self.ui.store_password.setDisabled(True)
 
         self.login_dialog = LoginDialog(self)
         self.login_dialog.setWindowTitle("Unlock the application:")
@@ -97,28 +101,31 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui.tableView.clicked.connect(self.copy_password)
         self.ui.actionDelete.triggered.connect(self.delete_item)
         self.ui.tableView.addAction(self.ui.actionDelete)
+        self.child_generate_password = None
+        self.child_add_password = AddServiceDialogAdd(self)
 
-        self.ui.pushButton.clicked.connect(self.add_service)
+        self.ui.generate_password.clicked.connect(self.add_service)
+        self.ui.store_password.clicked.connect(self.child_add_password.show)
 
-        self.child = AddServiceDialog(self)
         self.show()
 
     def copy_password(self, item: QModelIndex):
         """Doubleclick on a service copies the password to your clipboard."""
-        service = self.manager.get_service(self.ui.tableView.model().data[item.row()][0])
+        service = self.ui.tableView.model().data[item.row()][0]
         QtWidgets.QApplication.clipboard().setText(service.password)
-        self.ui.tableView.model().data[item.row()] = (service.name, service.password)
+        self.ui.tableView.model().data[item.row()] = (service, service.password)
         self.resize_table()
 
     def add_service(self):
         """Opens dialog for adding services."""
-        self.child.show()
+        self.child_generate_password = AddServiceDialogGenerate(self)
+        self.child_generate_password.show()
 
     def init_data(self):
         """Fills the table and adjust its size."""
         self.ui.tableView.setModel(
             ServiceTableModel(
-                [(o.name, "*****") for o in self.manager.services]
+                [(s, "*****") for s in self.manager.services]
             )
         )
         self.resize_table()
@@ -139,12 +146,12 @@ class MainWindow(QtWidgets.QMainWindow):
         reply = QtWidgets.QMessageBox.question(
             self,
             "Are you sure?",
-            f"Do you really want to delete {', '.join(services)}?",
+            f"Do you really want to delete {', '.join([s.name for s in services])}?",
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
         )
         if reply == QtWidgets.QMessageBox.Yes:
             for s in services:
-                self.manager.remove_service(s)
+                self.manager.remove_service(s.idx)
             self.init_data()
 
     def resizeEvent(self, a0: QtGui.QResizeEvent) -> None:
@@ -163,8 +170,9 @@ class MainWindow(QtWidgets.QMainWindow):
 class ServiceTableModel(QtCore.QAbstractTableModel):
     """Nodel for displaying the data in the table."""
 
-    def __init__(self, data: List[(str, str)], parent=None):
+    def __init__(self, data: List[(Service, str)], parent=None):
         super(ServiceTableModel, self).__init__(parent)
+        data.sort(key=lambda x: x[0].idx)
         self.data = data
 
     def rowCount(self, parent: QModelIndex = ...) -> int:
@@ -177,7 +185,7 @@ class ServiceTableModel(QtCore.QAbstractTableModel):
         if role == QtCore.Qt.DisplayRole:
             row = index.row()
             col = index.column()
-            return self.data[row][col]
+            return str(self.data[row][col])
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = ...):
         if role == QtCore.Qt.DisplayRole:
@@ -188,49 +196,49 @@ class ServiceTableModel(QtCore.QAbstractTableModel):
                     return "Password"
 
 
-class AddServiceDialog(QtWidgets.QDialog):
+class AddServiceDialogGenerate(QtWidgets.QDialog):
     """Dialog that lets you add a service and change the attributes of its password."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.ui = add.Ui_Dialog()
+        self.ui = generate.Ui_Dialog()
         self.ui.setupUi(self)
-        self.ui.buttonBox.accepted.connect(self.accept)
-        self.ui.buttonBox.rejected.connect(self.reject)
         self.setWindowTitle("Add a service")
+        self.ui.lineEditLength.setPlaceholderText(str(config.default_length))
 
     def accept(self) -> None:
         name = self.ui.lineEditName.text()
         if not name:
             return self.reject()
         length = self.ui.lineEditLength.text()
-        if not length:
+        if not length or not re.match(r'^\d+$', length):
             length = config.default_length
         else:
             length = int(length)
         alphabet: str = ""
         if self.ui.checkBoxEnforceLowercase.isChecked():
-            alphabet += "\[" + string.ascii_lowercase + "\]"
+            alphabet += r"\[" + string.ascii_lowercase + r"\]"
         elif self.ui.checkBoxAllowLowercase.isChecked():
             alphabet += string.ascii_lowercase
         if self.ui.checkBoxEnforceUppercase.isChecked():
-            alphabet += "\[" + string.ascii_uppercase + "\]"
+            alphabet += r"\[" + string.ascii_uppercase + r"\]"
         elif self.ui.checkBoxAllowUppercase.isChecked():
             alphabet += string.ascii_uppercase
         if self.ui.checkBoxEnforceNumbers.isChecked():
-            alphabet += "\[" + "".join([str(i) for i in range(10)]) + "\]"
+            alphabet += r"\[" + "".join([str(i) for i in range(10)]) + r"\]"
         elif self.ui.checkBoxAllowNumbers.isChecked():
             alphabet += "".join([str(i) for i in range(10)])
         special_symbols = "".join(set(self.ui.lineEditSpecialSymbols.text()))
         if not special_symbols:
             special_symbols = "!\"#$%&'()*+,-./:;<=>?@[]^_`{|}~\\"
-        elif "\[" in special_symbols or "\]" in special_symbols:
+        elif r"\[" in special_symbols or r"\]" in special_symbols:
             special_symbols = special_symbols.replace("\\", "")
             special_symbols += "\\"
         if self.ui.checkBoxEnforceSpecialSymbols.isChecked():
-            alphabet += "\[" + special_symbols + "\]"
+            alphabet += r"\[" + special_symbols + r"\]"
         elif self.ui.checkBoxAllowSpecialSymbols.isChecked():
             alphabet += special_symbols
+        self.ui.lineEditName.setText('')
 
         try:
             self.parent().manager.add_service(
@@ -245,11 +253,29 @@ class AddServiceDialog(QtWidgets.QDialog):
 
         self.parent().init_data()
         self.hide()
-        self.parent().child = AddServiceDialog(self.parent())
 
     def reject(self) -> None:
         self.hide()
-        self.parent().child = AddServiceDialog(self.parent())
+
+
+class AddServiceDialogAdd(QtWidgets.QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.ui = add.Ui_Dialog()
+        self.ui.setupUi(self)
+        self.setWindowTitle("Add a service")
+
+    def accept(self) -> None:
+        self.parent().manager.add_service(self.ui.lineEditName.text(), password=self.ui.lineEditPassword.text())
+        self.ui.lineEditName.setText('')
+        self.ui.lineEditPassword.setText('')
+        self.parent().init_data()
+        self.hide()
+
+    def reject(self) -> None:
+        self.ui.lineEditName.setText('')
+        self.ui.lineEditPassword.setText('')
+        self.hide()
 
 
 def main():

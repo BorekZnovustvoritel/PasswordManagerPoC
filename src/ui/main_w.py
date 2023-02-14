@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-# Form implementation generated from reading ui file './src/ui/main.ui'
+# Form implementation generated from reading ui file 'src/ui/main.ui'
 #
 # Created by: PyQt5 UI code generator 5.15.6
 #
@@ -24,9 +24,15 @@ class Ui_MainWindow(object):
         self.tableView.setObjectName("tableView")
         self.tableView.verticalHeader().setVisible(False)
         self.verticalLayout_3.addWidget(self.tableView)
-        self.pushButton = QtWidgets.QPushButton(self.centralwidget)
-        self.pushButton.setObjectName("pushButton")
-        self.verticalLayout_3.addWidget(self.pushButton)
+        self.horizontalLayout = QtWidgets.QHBoxLayout()
+        self.horizontalLayout.setObjectName("horizontalLayout")
+        self.generate_password = QtWidgets.QPushButton(self.centralwidget)
+        self.generate_password.setObjectName("generate_password")
+        self.horizontalLayout.addWidget(self.generate_password)
+        self.store_password = QtWidgets.QPushButton(self.centralwidget)
+        self.store_password.setObjectName("store_password")
+        self.horizontalLayout.addWidget(self.store_password)
+        self.verticalLayout_3.addLayout(self.horizontalLayout)
         MainWindow.setCentralWidget(self.centralwidget)
         self.actionDelete = QtWidgets.QAction(MainWindow)
         self.actionDelete.setObjectName("actionDelete")
@@ -37,6 +43,18 @@ class Ui_MainWindow(object):
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
         MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
-        self.pushButton.setText(_translate("MainWindow", "Add"))
+        self.generate_password.setText(_translate("MainWindow", "Generate new"))
+        self.store_password.setText(_translate("MainWindow", "Store password"))
         self.actionDelete.setText(_translate("MainWindow", "Delete"))
         self.actionDelete.setShortcut(_translate("MainWindow", "Del"))
+
+
+if __name__ == "__main__":
+    import sys
+
+    app = QtWidgets.QApplication(sys.argv)
+    MainWindow = QtWidgets.QMainWindow()
+    ui = Ui_MainWindow()
+    ui.setupUi(MainWindow)
+    MainWindow.show()
+    sys.exit(app.exec_())
