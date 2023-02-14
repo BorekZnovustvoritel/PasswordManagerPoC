@@ -9,6 +9,7 @@ from PyQt5.uic.properties import QtGui
 import re
 
 from src.utils import is_first_init
+from src.interface import Usage, Alphabet
 import src.interface as iface
 import src.config as config
 from src.ui import auth, main_w, generate, first_auth, add
@@ -205,6 +206,7 @@ class AddServiceDialogGenerate(QtWidgets.QDialog):
         self.ui.setupUi(self)
         self.setWindowTitle("Add a service")
         self.ui.lineEditLength.setPlaceholderText(str(config.default_length))
+        self.ui.lineEditSpecialSymbols.setPlaceholderText(config.default_special_characters)
 
     def accept(self) -> None:
         name = self.ui.lineEditName.text()
@@ -215,31 +217,31 @@ class AddServiceDialogGenerate(QtWidgets.QDialog):
             length = config.default_length
         else:
             length = int(length)
-        alphabet: str = ""
+        lowercase = Usage.DISALLOW
+        uppercase = Usage.DISALLOW
+        numbers = Usage.DISALLOW
+        special_symbols = Usage.DISALLOW
         if self.ui.checkBoxEnforceLowercase.isChecked():
-            alphabet += r"\[" + string.ascii_lowercase + r"\]"
+            lowercase = Usage.ENFORCE
         elif self.ui.checkBoxAllowLowercase.isChecked():
-            alphabet += string.ascii_lowercase
+            lowercase = Usage.ALLOW
         if self.ui.checkBoxEnforceUppercase.isChecked():
-            alphabet += r"\[" + string.ascii_uppercase + r"\]"
+            uppercase = Usage.ENFORCE
         elif self.ui.checkBoxAllowUppercase.isChecked():
-            alphabet += string.ascii_uppercase
+            uppercase = Usage.ALLOW
         if self.ui.checkBoxEnforceNumbers.isChecked():
-            alphabet += r"\[" + "".join([str(i) for i in range(10)]) + r"\]"
+            numbers = Usage.ENFORCE
         elif self.ui.checkBoxAllowNumbers.isChecked():
-            alphabet += "".join([str(i) for i in range(10)])
-        special_symbols = "".join(set(self.ui.lineEditSpecialSymbols.text()))
-        if not special_symbols:
-            special_symbols = "!\"#$%&'()*+,-./:;<=>?@[]^_`{|}~\\"
-        elif r"\[" in special_symbols or r"\]" in special_symbols:
-            special_symbols = special_symbols.replace("\\", "")
-            special_symbols += "\\"
+            numbers = Usage.ALLOW
+        specials_to_use = "".join(set(self.ui.lineEditSpecialSymbols.text()))
+        if not specials_to_use:
+            specials_to_use = config.default_special_characters
         if self.ui.checkBoxEnforceSpecialSymbols.isChecked():
-            alphabet += r"\[" + special_symbols + r"\]"
+            special_symbols = Usage.ENFORCE
         elif self.ui.checkBoxAllowSpecialSymbols.isChecked():
-            alphabet += special_symbols
+            special_symbols = Usage.ALLOW
         self.ui.lineEditName.setText('')
-
+        alphabet = Alphabet(lowercase, uppercase, numbers, special_symbols, specials_to_use)
         try:
             self.parent().manager.add_service(
                 name, length, alphabet
