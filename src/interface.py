@@ -47,6 +47,8 @@ class Alphabet:
                  specials_to_use: str = config.default_special_characters):
         self.groups: List[str] = []
         self.symbol_pool: str = ''
+        specials_to_use = ''.join(
+            filter(lambda x: True if x in config.default_special_characters else False, set(specials_to_use)))
         if lowercase == Usage.ENFORCE:
             self.groups.append(config.lowercase)
             self.symbol_pool += config.lowercase
