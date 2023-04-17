@@ -31,11 +31,9 @@ Add your services via the `Add` button on the main window, choose the password p
 
 Delete a service with a right click or sigleclick followed by pressing the `del` key on your keyboard.
 
-This softare doesn't even store your encrypted passwords. In the encrypted database file, there only is a "cookbook" involving salted sha3_512 and sha3_256 hashes that provide the pseudorandom password seed. So the only point of failure is (hopefully) a weak main password.
+This project is a work in progress and by using this, I take no liability over any lost data.
 
-This project is a work in progress and by using this, I take no liability over lost data.
-
-Protect and backup your `.db` file. If this file corrupts, all the saved passwords will be lost.
+Protect and backup your `.db` file. If this file corrupts, all the saved passwords will be lost. The database files may incompatible between versions.
 
 ## Credits
 
