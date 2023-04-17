@@ -1,6 +1,7 @@
+from __future__ import annotations
 import secrets
 from pathlib import Path
-from typing import Generator, List
+from typing import Generator
 from hashlib import md5
 import src.config as config
 

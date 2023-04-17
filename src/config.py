@@ -2,5 +2,8 @@ seed_length: int = 128
 db_name: str = "pswdmngr.db"
 default_iterations: int = 30
 default_length: int = 16
-default_alphabet: str = r"\[abcdefghijklmnopqrstuvwxyz\]\[ABCDEFGHIJKLMNOPQRSTUVWXYZ\]\[0123456789\]\[!\"#$%&'()*+,-./:;<=>?@[]^\\_`{|}~ \]"
+lowercase: str = "abcdefghijklmnopqrdtuvwxyz"
+uppercase: str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+numbers: str = "0123456789"
+default_special_characters: str = "!\"#$%&'()*+,-./:;<=>?@[]^\\_`{|}~"
 auth_iterations: int = 300000

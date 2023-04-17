@@ -1,7 +1,76 @@
-import src.utils as utils
+from __future__ import annotations
+
+from enum import Enum
+
 from typing import List, Optional
 import src.persistence as persistence
-import src.config as config
+from src import config as config
+from src.utils import rand_bytes, byte_cycling
+
+
+class Generator:
+    """Creates alphabet to which the cooked tokens will be translated. Ensures that there are present symbols from
+    required groups."""
+
+    def __init__(self, alphabet: Alphabet, length: int):
+        self.alphabet = alphabet
+        self.length = length
+
+    def generate_password(self) -> str:
+        """Maps bytes to a string output consisting of pre-selected symbols."""
+        unused_indices = [i for i in range(self.length)]
+        ans = {}
+        data = rand_bytes(2 * self.length)
+        iterator = byte_cycling(data)
+        for group in self.alphabet.groups:
+            position = unused_indices[next(iterator) % len(unused_indices)]
+            ans.update({position: group[next(iterator) % len(group)]})
+            unused_indices.remove(position)
+        for i in range(self.length - len(ans)):
+            position = unused_indices[next(iterator) % len(unused_indices)]
+            ans.update({position: self.alphabet.symbol_pool[next(iterator) % len(self.alphabet.symbol_pool)]})
+            unused_indices.remove(position)
+        password = ""
+        for i in range(self.length):
+            password += ans.get(i)
+        return password
+
+
+class Usage(Enum):
+    DISALLOW = 0
+    ALLOW = 1
+    ENFORCE = 2
+
+
+class Alphabet:
+    def __init__(self, lowercase: Usage, uppercase: Usage, numbers: Usage, specials: Usage,
+                 specials_to_use: str = config.default_special_characters):
+        self.groups: List[str] = []
+        self.symbol_pool: str = ''
+        specials_to_use = ''.join(
+            filter(lambda x: True if x in config.default_special_characters else False, set(specials_to_use)))
+        if lowercase == Usage.ENFORCE:
+            self.groups.append(config.lowercase)
+            self.symbol_pool += config.lowercase
+        elif lowercase == Usage.ALLOW:
+            self.symbol_pool += config.lowercase
+        if uppercase == Usage.ENFORCE:
+            self.groups.append(config.uppercase)
+            self.symbol_pool += config.uppercase
+        elif uppercase == Usage.ALLOW:
+            self.symbol_pool += config.uppercase
+        if numbers == Usage.ENFORCE:
+            self.groups.append(config.numbers)
+            self.symbol_pool += config.numbers
+        elif numbers == Usage.ALLOW:
+            self.symbol_pool += config.numbers
+        if specials == Usage.ENFORCE:
+            self.groups.append(specials_to_use)
+            self.symbol_pool += specials_to_use
+        elif specials == Usage.ALLOW:
+            self.symbol_pool += specials_to_use
+        if len(self.symbol_pool) < 10:
+            raise ValueError("This alphabet set would be too weak!")
 
 
 class PasswordManager:
@@ -20,53 +89,37 @@ class PasswordManager:
     def services(self) -> List[persistence.Service]:
         return self.persistence_manager.get_services()
 
-    def get_service(self, service: str) -> Optional[persistence.Service]:
-        return self.persistence_manager.get_service(service)
+    def get_service(self, idx: int) -> Optional[persistence.Service]:
+        return self.persistence_manager.get_service(idx)
 
     def add_service(
-        self,
-        name: str,
-        length: int = config.default_length,
-        iterations: int = config.default_iterations,
-        alphabet: str = config.default_alphabet,
+            self,
+            name: str,
+            length: int = config.default_length,
+            alphabet: Alphabet = Alphabet(Usage.ENFORCE, Usage.ENFORCE, Usage.ENFORCE,
+                                          Usage.ENFORCE),
+            password: str = None
     ) -> bool:
         """Add a service."""
-        if not isinstance(length, int) or length < 8:
-            raise ValueError("Weak password length!")
-        if not isinstance(iterations, int) or iterations < 1:
-            raise ValueError("Cannot perform less than 1 iteration!")
-        if not isinstance(alphabet, str) or len(set(alphabet)) < 10:
-            raise ValueError("Weak alphabet set!")
+        if password:
+            self.persistence_manager.add_service(name, password)
+            return True
+        if not isinstance(length, int):
+            raise ValueError("Length must be instance of int!")
         if config.seed_length < 1:
             raise ValueError(
                 "There has to be at least some cryptographic salt!"
                 " src.config.seed_length must be grater than 0!"
             )
-        service = self.persistence_manager.get_service(name)
-        if service is not None:
-            return False
-        service = persistence.Service(
-            name, utils.rand_bytes(config.seed_length), length, iterations, alphabet
-        )
-        service.init_control_hash()
-        self.persistence_manager.add_service(service)
+        self.persistence_manager.add_service(name, Generator(alphabet, length).generate_password())
         return True
 
-    def generate(self, service_name: str) -> str:
-        """Generate the password of a service according to the service name."""
-        service = self.get_service(service_name)
-        if not service:
-            raise ValueError("Service does not  exist!")
-        if not service.validate():
-            raise ValueError(
-                "Something has changed and the password could not be recovered!"
-            )
-        return service.generate()
-
-    def remove_service(self, name: str) -> str:
+    def remove_service(self, idx: int) -> str:
         """Remove the service according to its name."""
-        if not isinstance(name, str):
-            raise TypeError("Service name must be a string!")
-        if not self.persistence_manager.remove_service(name):
+        if not isinstance(idx, int):
+            raise TypeError("Service idx must be an integer!")
+        service = self.get_service(idx)
+        if not self.persistence_manager.remove_service(service):
             return "Not found."
-        return f"Successfully deleted service {name}."
+        return f"Successfully deleted service {service.name}."
+

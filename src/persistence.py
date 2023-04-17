@@ -1,10 +1,9 @@
 from __future__ import annotations
 import sqlite3
 from typing import List, Optional
-from src.utils import get_project_root, rand_bytes, byte_cycling
+from src.utils import get_project_root, rand_bytes
 from src.config import seed_length, db_name, auth_iterations
-from hashlib import sha3_512, sha3_256
-import pickle
+from hashlib import sha3_512, sha3_256, sha3_384
 
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
@@ -13,76 +12,101 @@ from Crypto.Util.Padding import pad, unpad
 class Service:
     """Decrypted service and password recipe."""
 
-    def __init__(
-        self, name: str, seed: bytes, length: int, iterations: int, alphabet: str
-    ):
+    def __init__(self, idx: int, name: str, encrypted_password: bytes, seed_name: bytes, seed_password: bytes,
+                 persistence_manager: Persistence):
+        self.persistence_manager = persistence_manager
+        self.idx: int = idx
         self.name: str = name
-        self.seed: bytes = seed
-        self.length: int = length
-        self.iterations: int = iterations
-        self.alphabet: str = alphabet
-        self.control_hash: bytes = None
+        self.encrypted_password = encrypted_password
+        self.seed_name = seed_name
+        self.seed_password = seed_password
 
     def __repr__(self):
         return self.__str__()
 
     def __str__(self):
-        return (
-            f"<Service: name='{self.name}', seed={self.seed}, length={self.length}, "
-            f"iterations={self.iterations}, alphabet='{self.alphabet}'>"
-        )
+        return self.name
 
-    def generate(self) -> str:
-        """Generate the service's password according to the recipe."""
-        if self.iterations < 1:
-            raise ValueError("Cannot iterate less times than 1!")
-        h = sha3_512()
-        h.update(bytes(self.name, encoding="utf-8") + self.seed)
-        digest = None
-        for i in range(self.iterations):
-            digest = h.digest()
-            h.update(digest)
-        service_map = MapAlphabet(self)
-        return service_map.generate_password(digest)
+    @property
+    def password(self) -> str:
+        """Generate the service's password."""
+        noise_source = sha3_384()
+        noise_source.update(self.persistence_manager.token)
+        noise_source.update(self.seed_password)
+        digest = noise_source.digest()
+        cipher = AES.new(digest[:32], AES.MODE_CBC, iv=digest[32:])
+        return unpad(cipher.decrypt(self.encrypted_password), 16).decode('utf-8')
 
-    def _control_hash(self) -> bytes:
-        """Returns hash of the generated password."""
-        h = sha3_512()
-        h.update(bytes(self.generate(), encoding="utf-8"))
-        return h.digest()
+    def change_name(self, name: str) -> bool:
+        self.name = name
+        return self.save()
 
-    def init_control_hash(self) -> None:
-        """Initiates the digest of the password for the correctness check."""
-        if self.control_hash is not None:
-            raise ValueError("Rewriting control hash is forbidden!")
-        self.control_hash = self._control_hash()
+    def change_password(self, password: str) -> bool:
+        noise_source = sha3_384()
+        noise_source.update(self.persistence_manager.token)
+        noise_source.update(self.seed_password)
+        digest = noise_source.digest()
+        cipher = AES.new(digest[:32], AES.MODE_CBC, iv=digest[32:])
+        self.encrypted_password = cipher.encrypt(pad(bytes(password, encoding='utf-8'), 16))
+        return self.save()
 
-    def validate(self) -> bool:
-        """Checks if the generated password is correct according to stored digest value."""
-        if self._control_hash() != self.control_hash:
-            return False
-        return True
+    def encrypt(self) -> EncryptedService:
+        noise_source = sha3_384()
+        noise_source.update(self.persistence_manager.token)
+        noise_source.update(self.seed_name)
+        digest = noise_source.digest()
+        cipher = AES.new(digest[:32], AES.MODE_CBC, iv=digest[32:])
+        e_name = cipher.encrypt(pad(bytes(self.name, encoding='utf-8'), 16))
+        return EncryptedService(self.idx, e_name, self.encrypted_password, self.seed_name, self.seed_password,
+                                self.persistence_manager)
 
-    def encrypt(self, persistence_manager: Persistence) -> EncryptedService:
-        """Turns itself into a pickle and encrypts itself. Funniest shit I've ever seen."""
-        blob = pickle.dumps(self)
-        cipher = AES.new(persistence_manager.token, AES.MODE_CBC)
-        iv = cipher.iv
-        cipher_blob = cipher.encrypt(pad(blob, 16))
-        return EncryptedService(cipher_blob, iv)
+    def save(self) -> bool:
+        return self.encrypt().save()
 
 
 class EncryptedService:
-    """Pickled, encrypted service and its recipe."""
+    """Encrypted service and its IVs."""
 
-    def __init__(self, blob, iv):
-        self.blob = blob
-        self.iv = iv
+    def __init__(self, idx: int, e_name: bytes, e_password: bytes, seed_name: bytes, seed_password: bytes,
+                 persistence_manager: Persistence):
+        self.idx = idx
+        self.e_name = e_name
+        self.e_password = e_password
+        self.seed_name = seed_name
+        self.seed_password = seed_password
+        self.persistence_manager = persistence_manager
 
     def decrypt(self, persistence_manager: Persistence) -> Service:
-        """Enough of the R&M references. We goin' plaintext again."""
-        cipher = AES.new(persistence_manager.token, AES.MODE_CBC, iv=self.iv)
-        return pickle.loads(unpad(cipher.decrypt(self.blob), 16))
+        """Creates Service from EncryptedService."""
+        noise_source = sha3_384()
+        noise_source.update(persistence_manager.token)
+        noise_source.update(self.seed_name)
+        digest = noise_source.digest()
+        cipher = AES.new(digest[:32], AES.MODE_CBC, iv=digest[32:])
+        name = unpad(cipher.decrypt(self.e_name), 16).decode('utf-8')
+        return Service(self.idx, name, self.e_password, self.seed_name, self.seed_password, persistence_manager)
+
+    def save(self) -> bool:
+        idx = self.persistence_manager.cursor.execute("SELECT idx FROM services WHERE idx = ?", (self.idx,)).fetchone()
+        if not self.idx or not idx:
+            try:
+                self.persistence_manager.cursor.execute(
+                    "INSERT INTO services (e_name, e_password, seed_name, seed_password) VALUES (?, ?, ?, ?);",
+                    (self.e_name, self.e_password, self.seed_name, self.seed_password)
+                )
+                self.persistence_manager.conn.commit()
+                return True
+            except sqlite3.Error:
+                return False
+        else:
+            try:
+                self.persistence_manager.cursor.execute("UPDATE services SET e_name = ?, e_password = ?, seed_name = ?,"
+                                                        " seed_password = ? WHERE idx = ?;",
+                                                        (self.e_name, self.e_password, self.seed_name,
+                                                         self.seed_password, self.idx))
+                return True
+            except sqlite3.Error:
+                return False
 
 
 class Persistence:
@@ -103,7 +127,9 @@ class Persistence:
         self.init_token(user_password)
 
         self.cursor.execute(
-            "CREATE TABLE IF NOT EXISTS services (idx INTEGER PRIMARY KEY AUTOINCREMENT, e_data BLOB, iv BLOB);"
+            "CREATE TABLE IF NOT EXISTS services"
+            " (idx INTEGER PRIMARY KEY AUTOINCREMENT, e_name BLOB, e_password BLOB,"
+            " seed_name BLOB, seed_password BLOB);"
         )
         self.conn.commit()
 
@@ -123,26 +149,39 @@ class Persistence:
 
     def get_services(self) -> List[Service]:
         """Get decrypted services and their recipes."""
-        ans: List = []
-        for row in self.cursor.execute("SELECT e_data, iv FROM services;"):
-            e_service = EncryptedService(row[0], row[1])
+        ans: List[Service] = []
+        for row in self.cursor.execute("SELECT idx, e_name, e_password, seed_name, seed_password FROM services;"):
+            e_service = EncryptedService(row[0], row[1], row[2], row[3], row[4], self)
             service = e_service.decrypt(self)
             ans.append(service)
         return ans
 
-    def get_service(self, name: str) -> Optional[Service]:
+    def get_service(self, idx: int) -> Optional[Service]:
         """Get decrypted service and its recipe"""
         services = self.get_services()
-        return next((service for service in services if service.name == name), None)
+        return next((service for service in services if service.idx == idx), None)
 
-    def add_service(self, service: Service) -> None:
+    def add_service(self, name: str, password: str) -> bool:
         """Encrypt a service and add it to the database."""
-        e_service = service.encrypt(self)
-        self.cursor.execute(
-            "INSERT INTO services (e_data, iv) VALUES (?, ?);",
-            (e_service.blob, e_service.iv),
-        )
-        self.conn.commit()
+        if not name or not password:
+            return False
+        seed_name = rand_bytes(32)
+        noise_source = sha3_384()
+        noise_source.update(self.token)
+        noise_source.update(seed_name)
+        digest = noise_source.digest()
+        cipher_n = AES.new(digest[:32], AES.MODE_CBC, iv=digest[32:])
+        e_name = cipher_n.encrypt(pad(bytes(name, encoding='utf-8'), 16))
+
+        seed_password = rand_bytes(32)
+        noise_source = sha3_384()
+        noise_source.update(self.token)
+        noise_source.update(seed_password)
+        digest = noise_source.digest()
+        cipher_p = AES.new(digest[:32], AES.MODE_CBC, iv=digest[32:])
+        e_password = cipher_p.encrypt(pad(bytes(password, encoding='utf-8'), 16))
+        encrypted_service = EncryptedService(None, e_name, e_password, seed_name, seed_password, self)
+        return encrypted_service.save()
 
     def init_token(self, user_password: str) -> None:
         """Initiates the password decryption token. Combines main password with salt and hashes this mess many times."""
@@ -185,77 +224,10 @@ class Persistence:
         )
         self.conn.commit()
 
-    def remove_service(self, name: str) -> bool:
+    def remove_service(self, service: Service) -> bool:
         """Removes a service."""
-        service = self.get_service(name)
         if not service:
             return False
-        for row in self.cursor.execute("SELECT idx, e_data, iv FROM services;"):
-            e_service = EncryptedService(row[1], row[2])
-            service = e_service.decrypt(self)
-            idx = row[0]
-            if service.name == name:
-                self.cursor.execute("DELETE FROM services WHERE idx=?;", (idx,))
+        self.cursor.execute("DELETE FROM services WHERE idx=?;", (service.idx,))
         self.conn.commit()
         return True
-
-
-class MapAlphabet:
-    """Creates alphabet to which the cooked tokens will be translated. Ensures that there are present symbols from
-    required groups."""
-
-    def __init__(self, service: Service):
-        self.raw_service = service
-        self.alphabet = service.alphabet
-        self.groups = None
-        self.init_groups()
-        self.charset = list(set(self.alphabet))
-        self.charset.sort()
-        if len(self.groups) > self.raw_service.length:
-            raise ValueError("Cannot have more groups than symbols!")
-
-    def init_groups(self) -> None:
-        """Translates the string-based alphabet syntax to an actual object. These strings are stored in the recipe."""
-        marked_indices = []
-        groups = []
-        inside_brackets = False
-        start_index = -1
-        for index, letter in enumerate(self.alphabet):
-            if letter == "\\" and index < len(self.alphabet) - 1:
-                if self.alphabet[index + 1] == "[":
-                    inside_brackets = True
-                    start_index = index + 2
-                elif (
-                    self.alphabet[index + 1] == "]"
-                    and inside_brackets
-                    and (index - start_index) > 0
-                ):
-                    groups.append(self.alphabet[start_index:index])
-                    inside_brackets = False
-                    marked_indices.append(start_index - 2)
-                    marked_indices.append(start_index - 1)
-                    marked_indices.append(index)
-                    marked_indices.append(index + 1)
-                    start_index = -1
-        self.groups = groups
-        marked_indices.sort(reverse=True)
-        for i in marked_indices:
-            self.alphabet = self.alphabet[:i] + self.alphabet[i + 1 :]
-
-    def generate_password(self, data: bytes) -> str:
-        """Maps bytes to a string output consisting of pre-selected symbols."""
-        unused_indices = [i for i in range(self.raw_service.length)]
-        ans = {}
-        iterator = byte_cycling(data)
-        for group in self.groups:
-            position = unused_indices[next(iterator) % len(unused_indices)]
-            ans.update({position: group[next(iterator) % len(group)]})
-            unused_indices.remove(position)
-        for i in range(self.raw_service.length - len(ans)):
-            position = unused_indices[next(iterator) % len(unused_indices)]
-            ans.update({position: self.charset[next(iterator) % len(self.charset)]})
-            unused_indices.remove(position)
-        password = ""
-        for i in range(self.raw_service.length):
-            password += ans.get(i)
-        return password
